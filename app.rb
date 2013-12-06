@@ -4,35 +4,79 @@ require 'bundler'
 require 'sinatra'
 require 'net/http'
 require 'uri'
+require 'active_record'
+require 'sinatra/activerecord'
+require 'sinatra/base'
+require './models/user'
+require './models/card'
 Bundler.require(:default)
 
-def open(url)
-  Net::HTTP.get(URI.parse(url))
-end
+post "/card" do
+  params  = JSON.parse(request.env["rack.input"].read)
+  num       = params["number"]
+  candidate = params["candidate"]
+  card_type = params["card_type"]
 
-get "/crashes_per_session" do
-  output = ""
-  response_json = JSON.parse(open('http://api.flurry.com/appMetrics/Sessions?apiAccessCode=RC8KC64CVVV4GSYRBZKM&apiKey=DSDSKKGN4NC87YFPRKHJ&startDate=2013-11-01&endDate=2013-12-5&versionName=4.4.0&groupBy=MONTHS'))
-  days_array = response_json["day"]
+  if num && candidate
 
-  total_sessions = 0
-  days_array.each do |day_stats|
-    total_sessions += day_stats["@value"].to_i
-    output += "Day array"
+    if num.length < 10
+      status 400
+      return "Card number is too short"
+    end
+    card = Card.new
+    card.save
+    id = card.id
+
+    card = Card.find(id)
+    card.last_four = num[-4,4]
+    card.candidate = candidate
+    card.card_type = card_type
+    card.save
+
+  elsif candidate.nil?
+    status 401
+    return "All requests must include a candidate value"
   end
-  #days_array.to_s
-  ((2900.to_f/total_sessions.to_f)*100.to_f).round(2).to_s + "%"
+
+  return card.to_json
 end
 
+
+get "/card" do
+  candidate = params["candidate"]
+  if candidate.nil?
+    status 401 
+    return "All requests must include a \"candidate\" parameter"
+  end
+
+  cards = Card.where(candidate: candidate)
+
+  outputstring = "{\"cards\":["
+  cards.each do |card|
+    outputstring += card.to_json
+    outputstring += ", "
+  end
+
+  outputstring += "]}"
+end
+
+get "/card/:card_id" do
+  candidate = params["candidate"]
+  if candidate.nil?
+    status 401
+    return "All requests must include a \"candidate\" parameter"
+  end
+
+  cards = Card.where("candidate = ? AND id = ?", candidate, params[:card_id])
+  if cards.count > 0
+    cards.first.to_json
+  else
+    status 404
+    ""
+  end
+end
 
 get "/" do
   erb :index
 end
-
-get "/latest_version_any_track" do
-  Version.where("enabled = true").last.to_json
-end
-
-
-
 
